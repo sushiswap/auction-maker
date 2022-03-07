@@ -28,6 +28,7 @@ contract SushiMakerAuction is BoringBatchable, BoringOwnable {
     IERC20 public immutable bidToken;
     address public immutable factory;
     bytes32 public immutable pairCodeHash;
+    bytes32 public immutable lpCodeHash;
 
     // keep this constant?
     uint256 public constant MIN_BID = 1000;
@@ -42,12 +43,14 @@ contract SushiMakerAuction is BoringBatchable, BoringOwnable {
         address _receiver,
         IERC20 _bidToken,
         address _factory,
-        bytes32 _pairCodeHash
+        bytes32 _pairCodeHash,
+        bytes32 _lpCodeHash
     ) {
         receiver = _receiver;
         bidToken = _bidToken;
         factory = _factory;
         pairCodeHash = _pairCodeHash;
+        lpCodeHash = _lpCodeHash;
     }
 
     function start(
@@ -57,11 +60,16 @@ contract SushiMakerAuction is BoringBatchable, BoringOwnable {
     ) external {
         // can be combined into one
         // any better way to check LP?
-        (bool success, bytes memory data) = address(token).call(
-            abi.encodeWithSignature("token0()")
-        );
 
-        require(success && data.length == 0, "lp token not allowed");
+        // Method 1:
+        // (bool success, bytes memory data) = address(token).call(
+        //     abi.encodeWithSignature("token0()")
+        // );
+
+        // require(success && data.length == 0, "lp token not allowed");
+
+        // Method 2:
+        require(keccak256(address(token).code) != lpCodeHash, "lp token not allowed");
 
         require(token != bidToken, "bid token not allowed");
 
