@@ -2,7 +2,7 @@
 
 pragma solidity 0.8.11;
 
-import "@sushiswap/core/contracts/uniswapv2/interfaces/IUniswapV2Pair.sol";
+import "./libraries/UniswapV2Library.sol";
 import "./utils/BoringBatchable.sol";
 import "./utils/BoringOwnable.sol";
 
@@ -25,8 +25,9 @@ contract SushiMakerAuction is BoringBatchable, BoringOwnable {
     mapping(IERC20 => Bid) public bids;
 
     address public receiver;
-
     IERC20 public immutable bidToken;
+    address public immutable factory;
+    bytes32 public immutable pairCodeHash;
 
     // keep this constant?
     uint256 public constant MIN_BID = 1000;
@@ -37,9 +38,11 @@ contract SushiMakerAuction is BoringBatchable, BoringOwnable {
     uint64 public minTTL = 12 hours;
     uint64 public maxTTL = 3 days;
 
-    constructor(address _receiver, IERC20 _bidToken) {
+    constructor(address _receiver, IERC20 _bidToken, address _factory, bytes32 _pairCodeHash) {
         receiver = _receiver;
         bidToken = _bidToken;
+        factory = _factory;
+        pairCodeHash = _pairCodeHash;
     }
 
     function start(
@@ -118,9 +121,9 @@ contract SushiMakerAuction is BoringBatchable, BoringOwnable {
         delete bids[token];
     }
 
-    // unsafe
-    function unwindLP(IUniswapV2Pair lp) external {
-        lp.burn(address(this));
+    function unwindLP(address token0, address token1) external {
+        IUniswapV2Pair pair = IUniswapV2Pair(UniswapV2Library.pairFor(factory, token0, token1, pairCodeHash));
+        pair.burn(address(this));
     }
 
     function updateReceiver(address newReceiver) external onlyOwner {
