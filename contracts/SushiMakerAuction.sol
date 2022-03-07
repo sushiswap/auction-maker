@@ -118,6 +118,7 @@ contract SushiMakerAuction is BoringBatchable, BoringOwnable {
         delete bids[token];
     }
 
+    // unsafe
     function unwindLP(IUniswapV2Pair lp) external {
         lp.burn(address(this));
     }
