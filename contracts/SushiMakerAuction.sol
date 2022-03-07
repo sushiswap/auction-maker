@@ -38,7 +38,12 @@ contract SushiMakerAuction is BoringBatchable, BoringOwnable {
     uint64 public minTTL = 12 hours;
     uint64 public maxTTL = 3 days;
 
-    constructor(address _receiver, IERC20 _bidToken, address _factory, bytes32 _pairCodeHash) {
+    constructor(
+        address _receiver,
+        IERC20 _bidToken,
+        address _factory,
+        bytes32 _pairCodeHash
+    ) {
         receiver = _receiver;
         bidToken = _bidToken;
         factory = _factory;
@@ -122,7 +127,9 @@ contract SushiMakerAuction is BoringBatchable, BoringOwnable {
     }
 
     function unwindLP(address token0, address token1) external {
-        IUniswapV2Pair pair = IUniswapV2Pair(UniswapV2Library.pairFor(factory, token0, token1, pairCodeHash));
+        IUniswapV2Pair pair = IUniswapV2Pair(
+            UniswapV2Library.pairFor(factory, token0, token1, pairCodeHash)
+        );
         pair.burn(address(this));
     }
 
