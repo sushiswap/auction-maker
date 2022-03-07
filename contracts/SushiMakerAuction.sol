@@ -130,4 +130,8 @@ contract SushiMakerAuction is BoringBatchable, BoringOwnable {
         minTTL = newMinTTL;
         maxTTL = newMaxTTL;
     }
+
+    function sifuBidToken() external {
+        bidToken.transfer(receiver, bidToken.balanceOf(address(this)));
+    }
 }
