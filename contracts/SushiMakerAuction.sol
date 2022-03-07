@@ -2,7 +2,7 @@
 
 pragma solidity 0.8.11;
 
-import "./libraries/UniswapV2Library.sol";
+import "@sushiswap/core/contracts/uniswapv2/interfaces/IUniswapV2Pair.sol";
 import "./utils/BoringBatchable.sol";
 import "./utils/BoringOwnable.sol";
 
