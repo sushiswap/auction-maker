@@ -41,17 +41,15 @@ contract SushiMakerAuction is BoringBatchable, BoringOwnable, ReentrancyGuard {
     address public immutable factory;
     bytes32 public immutable pairCodeHash;
 
-    // keep this constant?
-    uint256 public constant MIN_BID = 1000;
-    uint256 public constant MIN_BID_THRESHOLD = 1e15;
-    uint256 public constant MIN_BID_THRESHOLD_PRECISION = 1e18;
+    uint256 private constant MIN_BID = 1000;
+    uint256 private constant MIN_BID_THRESHOLD = 1e15;
+    uint256 private constant MIN_BID_THRESHOLD_PRECISION = 1e18;
 
-    // keep this configurable?
-    uint64 public minTTL = 12 hours;
-    uint64 public maxTTL = 3 days;
+    uint64 private constant minTTL = 12 hours;
+    uint64 private constant maxTTL = 3 days;
 
     modifier onlyToken(IERC20 token) {
-        // Any cleaner way to find if it's an LP?
+        // Any cleaner way to find if it's a LP?
         (bool success, ) = address(token).call(
             abi.encodeWithSignature("token0()")
         );
@@ -140,7 +138,7 @@ contract SushiMakerAuction is BoringBatchable, BoringOwnable, ReentrancyGuard {
 
     function unwindLP(address token0, address token1) external {
         IUniswapV2Pair pair = IUniswapV2Pair(
-            UniswapV2Library.pairForExternal(
+            UniswapV2Library.pairFor(
                 factory,
                 token0,
                 token1,
@@ -160,10 +158,5 @@ contract SushiMakerAuction is BoringBatchable, BoringOwnable, ReentrancyGuard {
 
     function updateReceiver(address newReceiver) external onlyOwner {
         receiver = newReceiver;
-    }
-
-    function updateTTLs(uint64 newMinTTL, uint64 newMaxTTL) external onlyOwner {
-        minTTL = newMinTTL;
-        maxTTL = newMaxTTL;
     }
 }
