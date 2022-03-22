@@ -7,12 +7,12 @@ import "./libraries/UniswapV2Library.sol";
 import "./utils/BoringBatchable.sol";
 import "./utils/BoringOwnable.sol";
 
-// TODO: replace with custom errors
 // TODO: add events
 // TODO: add unchecked to satisfy some people gas thirst
 // TODO: address(0) checks?
 // TODO: slot packing
-// TODO: cross-check scenarios with bug/vuln list
+// TODO: cross-check scenarios with bug/vuln list? do we need non reentrant?
+// TODO: do we need non reentrant?
 
 // custom errors
 error LPTokenNotAllowed();
@@ -51,7 +51,6 @@ contract SushiMakerAuction is BoringBatchable, BoringOwnable, ReentrancyGuard {
     uint64 public maxTTL = 3 days;
 
     modifier onlyToken(IERC20 token) {
-
         // Any cleaner way to find if it's an LP?
         (bool success, ) = address(token).call(
             abi.encodeWithSignature("token0()")
@@ -125,9 +124,10 @@ contract SushiMakerAuction is BoringBatchable, BoringOwnable, ReentrancyGuard {
     function end(IERC20 token) external nonReentrant {
         Bid memory bid = bids[token];
 
-        if(bid.bidder == address(0)) revert BidNotStarted();
+        if (bid.bidder == address(0)) revert BidNotStarted();
 
-        if(bid.minTTL > block.timestamp && bid.maxTTL > block.timestamp) revert BidNotFinished();
+        if (bid.minTTL > block.timestamp && bid.maxTTL > block.timestamp)
+            revert BidNotFinished();
 
         token.transfer(bid.bidder, bid.rewardAmount);
 
@@ -151,6 +151,13 @@ contract SushiMakerAuction is BoringBatchable, BoringOwnable, ReentrancyGuard {
         pair.burn(address(this));
     }
 
+    function skimBidToken() external {
+        bidToken.transfer(
+            receiver,
+            bidToken.balanceOf(address(this)) - stakedBidToken
+        );
+    }
+
     function updateReceiver(address newReceiver) external onlyOwner {
         receiver = newReceiver;
     }
@@ -158,9 +165,5 @@ contract SushiMakerAuction is BoringBatchable, BoringOwnable, ReentrancyGuard {
     function updateTTLs(uint64 newMinTTL, uint64 newMaxTTL) external onlyOwner {
         minTTL = newMinTTL;
         maxTTL = newMaxTTL;
-    }
-
-    function sifuBidToken() external {
-        bidToken.transfer(receiver, bidToken.balanceOf(address(this)));
     }
 }
