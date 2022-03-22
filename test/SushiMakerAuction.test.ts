@@ -11,6 +11,7 @@ import {
   increase,
   MIN_TTL,
   MAX_TTL,
+  ADDRESS_ZERO,
 } from "./harness";
 
 describe("Start Auction", function () {
@@ -353,5 +354,169 @@ describe("Place Bid", function () {
     expect(postBidData.bidder).to.be.eq(accounts[1].address);
     expect(postBidData.bidAmount).to.be.eq(1001);
     expect(afterStakedBidToken).to.be.eq(beforeStakedBidToken.add(1));
+  });
+});
+
+describe("End Auction", function () {
+  let accounts: Signer[];
+  let tokens = [];
+  let sushiToken;
+  let nativeToken;
+  let makerAuction;
+  let factory;
+  let pair;
+  let router;
+  let snapshotId;
+
+  before(async function () {
+    accounts = await ethers.getSigners();
+    const ERC20 = await ethers.getContractFactory("ERC20Mock");
+    const Factory = await ethers.getContractFactory("SushiSwapFactoryMock");
+    const SushiSwapPairMock = await ethers.getContractFactory(
+      "SushiSwapPairMock"
+    );
+
+    const Router = await ethers.getContractFactory("UniswapV2Router02");
+
+    const MakerAuction = await ethers.getContractFactory("SushiMakerAuction");
+
+    let promises = [];
+    for (let i = 0; i < 10; i++) {
+      promises.push(
+        ERC20.deploy("Token" + i, "TOK" + i, getBigNumber(1000000))
+      );
+    }
+
+    tokens = await Promise.all(promises);
+
+    sushiToken = await ERC20.deploy("Sushi", "SUSHI", getBigNumber(1000000));
+
+    nativeToken = await ERC20.deploy(
+      "NativeToken",
+      "NTK",
+      getBigNumber(1000000)
+    );
+
+    factory = await Factory.deploy();
+
+    const pairCodeHash = await factory.pairCodeHash();
+
+    router = await Router.deploy(factory.address, nativeToken.address);
+
+    makerAuction = await MakerAuction.deploy(
+      accounts[5].address,
+      sushiToken.address,
+      factory.address,
+      pairCodeHash
+    );
+
+    await factory.setFeeTo(makerAuction.address);
+
+    const createPairTx = await factory.createPair(
+      tokens[0].address,
+      tokens[1].address
+    );
+
+    const _pair = (await createPairTx.wait()).events[0].args.pair;
+
+    pair = await SushiSwapPairMock.attach(_pair);
+
+    // mint liq
+    await tokens[0].transfer(pair.address, getBigNumber(500000));
+    await tokens[1].transfer(pair.address, getBigNumber(500000));
+
+    await pair.mint(accounts[0].address);
+
+    await tokens[0].approve(router.address, getBigNumber(1000000));
+    await tokens[1].approve(router.address, getBigNumber(1000000));
+
+    // swap and mint fee
+    const amountOut = await router.getAmountsOut(getBigNumber(100), [
+      tokens[0].address,
+      tokens[1].address,
+    ]);
+
+    await router.swapExactTokensForTokens(
+      getBigNumber(100),
+      amountOut[1],
+      [tokens[0].address, tokens[1].address],
+      accounts[0].address,
+      ~~(Date.now() / 1000 + 3600)
+    );
+
+    await tokens[0].transfer(pair.address, getBigNumber(1));
+    await tokens[1].transfer(pair.address, getBigNumber(1));
+
+    await pair.mint(accounts[0].address);
+
+    // unwind lp
+    await makerAuction.unwindLP(tokens[0].address, tokens[1].address);
+  });
+
+  beforeEach(async function () {
+    snapshotId = await snapshot();
+  });
+
+  afterEach(async function () {
+    await restore(snapshotId);
+  });
+
+  it("should not allow to end if auction not started", async function () {
+    await expect(makerAuction.end(tokens[0].address)).to.be.revertedWith(
+      "BidNotStarted()"
+    );
+  });
+
+  it("should not allow to end bid if min ttl not over", async function () {
+    // start auction
+    await sushiToken.approve(makerAuction.address, getBigNumber(1));
+    await makerAuction.start(tokens[0].address, 1000, accounts[0].address);
+
+    await expect(makerAuction.end(tokens[0].address)).to.be.revertedWith(
+      "BidNotFinished()"
+    );
+  });
+
+  it("should not allow to end bid before max ttl not over", async function () {
+    await sushiToken.approve(makerAuction.address, getBigNumber(1));
+    await makerAuction.start(tokens[0].address, 1000, accounts[0].address);
+
+    let startAmount = 1000;
+    for (let i = 0; i < 6; i++) {
+      startAmount += Math.floor(startAmount * 0.001);
+      await increase(MIN_TTL.sub(100));
+      await makerAuction.placeBid(
+        tokens[0].address,
+        startAmount,
+        accounts[0].address
+      );
+    }
+    await expect(makerAuction.end(tokens[0].address)).to.be.revertedWith(
+      "BidNotFinished()"
+    );
+  });
+
+  it("should allow to end auction and start new auction", async function () {
+    await sushiToken.approve(makerAuction.address, getBigNumber(1));
+    await makerAuction.start(tokens[0].address, 1000, accounts[0].address);
+
+    const beforeStakedBidToken = await makerAuction.stakedBidToken();
+
+    await increase(MIN_TTL.add(1));
+
+    await makerAuction.end(tokens[0].address);
+    
+    const afterStakedBidToken = await makerAuction.stakedBidToken();
+
+    const postBidData = await makerAuction.bids(tokens[0].address);
+
+    const receiverSushiBalance = await sushiToken.balanceOf(
+      accounts[5].address
+    );
+
+    expect(receiverSushiBalance).to.be.eq(1000);
+    expect(postBidData.bidder).to.be.eq(ADDRESS_ZERO);
+    expect(afterStakedBidToken).to.be.eq(beforeStakedBidToken.sub(1000))
+    await makerAuction.start(tokens[0].address, 1000, accounts[0].address);
   });
 });

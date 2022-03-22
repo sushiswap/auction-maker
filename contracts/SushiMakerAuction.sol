@@ -2,10 +2,10 @@
 
 pragma solidity 0.8.11;
 
+import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 import "./libraries/UniswapV2Library.sol";
 import "./utils/BoringBatchable.sol";
 import "./utils/BoringOwnable.sol";
-import "hardhat/console.sol";
 
 // TODO: replace with custom errors
 // TODO: add events
@@ -21,8 +21,9 @@ error InsufficientBidAmount();
 error BidAlreadyStarted();
 error BidNotStarted();
 error BidFinished();
+error BidNotFinished();
 
-contract SushiMakerAuction is BoringBatchable, BoringOwnable {
+contract SushiMakerAuction is BoringBatchable, BoringOwnable, ReentrancyGuard {
     struct Bid {
         address bidder;
         uint128 bidAmount;
@@ -50,6 +51,8 @@ contract SushiMakerAuction is BoringBatchable, BoringOwnable {
     uint64 public maxTTL = 3 days;
 
     modifier onlyToken(IERC20 token) {
+
+        // Any cleaner way to find if it's an LP?
         (bool success, ) = address(token).call(
             abi.encodeWithSignature("token0()")
         );
@@ -73,7 +76,7 @@ contract SushiMakerAuction is BoringBatchable, BoringOwnable {
         IERC20 token,
         uint128 bidAmount,
         address to
-    ) external onlyToken(token) {
+    ) external onlyToken(token) nonReentrant {
         if (token == bidToken) revert BidTokenNotAllowed();
 
         if (bidAmount < MIN_BID) revert InsufficientBidAmount();
@@ -97,7 +100,7 @@ contract SushiMakerAuction is BoringBatchable, BoringOwnable {
         IERC20 token,
         uint128 bidAmount,
         address to
-    ) external {
+    ) external nonReentrant {
         Bid storage bid = bids[token];
 
         if (bid.bidder == address(0)) revert BidNotStarted();
@@ -119,19 +122,18 @@ contract SushiMakerAuction is BoringBatchable, BoringOwnable {
         bid.minTTL = uint64(block.timestamp) + minTTL;
     }
 
-    function end(IERC20 token) external {
+    function end(IERC20 token) external nonReentrant {
         Bid memory bid = bids[token];
 
-        require(bid.bidder != address(0), "bid not started");
+        if(bid.bidder == address(0)) revert BidNotStarted();
 
-        require(
-            bid.minTTL <= block.timestamp || bid.maxTTL <= block.timestamp,
-            "Bid not Finished"
-        );
+        if(bid.minTTL > block.timestamp && bid.maxTTL > block.timestamp) revert BidNotFinished();
 
         token.transfer(bid.bidder, bid.rewardAmount);
 
-        bidToken.transfer(receiver, bid.rewardAmount);
+        bidToken.transfer(receiver, bid.bidAmount);
+
+        stakedBidToken -= bid.bidAmount;
 
         delete bids[token];
     }
