@@ -6,7 +6,7 @@ export const ONE = BigNumber.from(1);
 export const TWO = BigNumber.from(2);
 export const E18 = BigNumber.from(10).pow(18);
 export const MAX_FEE = BigNumber.from(10000);
-export const MIN_TTL = BigNumber.from(43200)
+export const MIN_TTL = BigNumber.from(43200);
 export const MAX_TTL = BigNumber.from(259200);
 
 export const ADDRESS_ZERO = "0x0000000000000000000000000000000000000000";

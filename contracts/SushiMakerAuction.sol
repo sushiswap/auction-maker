@@ -138,12 +138,7 @@ contract SushiMakerAuction is BoringBatchable, BoringOwnable, ReentrancyGuard {
 
     function unwindLP(address token0, address token1) external {
         IUniswapV2Pair pair = IUniswapV2Pair(
-            UniswapV2Library.pairFor(
-                factory,
-                token0,
-                token1,
-                pairCodeHash
-            )
+            UniswapV2Library.pairFor(factory, token0, token1, pairCodeHash)
         );
         pair.transfer(address(pair), pair.balanceOf(address(this)));
         pair.burn(address(this));

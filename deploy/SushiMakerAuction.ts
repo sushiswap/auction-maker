@@ -4,8 +4,6 @@ import { HardhatRuntimeEnvironment } from "hardhat/types";
 const func: DeployFunction = async function ({
   getNamedAccounts,
   deployments,
-}: HardhatRuntimeEnvironment) {
-  
-};
+}: HardhatRuntimeEnvironment) {};
 
 export default func;
