@@ -17,3 +17,5 @@ types/
 # Coverage
 coverage/
 coverage.json
+
+bin/

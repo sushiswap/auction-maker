@@ -5,6 +5,7 @@ pragma solidity 0.8.11;
 import "./libraries/UniswapV2Library.sol";
 import "./utils/BoringBatchable.sol";
 import "./utils/BoringOwnable.sol";
+import "hardhat/console.sol";
 
 // TODO: replace with custom errors
 // TODO: add events
@@ -13,12 +14,13 @@ import "./utils/BoringOwnable.sol";
 // TODO: slot packing
 // TODO: cross-check scenarios with bug/vuln list
 
-
 // custom errors
 error LPTokenNotAllowed();
 error BidTokenNotAllowed();
 error InsufficientBidAmount();
 error BidAlreadyStarted();
+error BidNotStarted();
+error BidFinished();
 
 contract SushiMakerAuction is BoringBatchable, BoringOwnable {
     struct Bid {
@@ -51,7 +53,7 @@ contract SushiMakerAuction is BoringBatchable, BoringOwnable {
         (bool success, ) = address(token).call(
             abi.encodeWithSignature("token0()")
         );
-        if(success) revert LPTokenNotAllowed();
+        if (success) revert LPTokenNotAllowed();
         _;
     }
 
@@ -72,14 +74,13 @@ contract SushiMakerAuction is BoringBatchable, BoringOwnable {
         uint128 bidAmount,
         address to
     ) external onlyToken(token) {
+        if (token == bidToken) revert BidTokenNotAllowed();
 
-        if(token == bidToken) revert BidTokenNotAllowed();
-
-        if(bidAmount < MIN_BID) revert InsufficientBidAmount();
+        if (bidAmount < MIN_BID) revert InsufficientBidAmount();
 
         Bid storage bid = bids[token];
 
-        if(bid.bidder != address(0)) revert BidAlreadyStarted();
+        if (bid.bidder != address(0)) revert BidAlreadyStarted();
 
         bidToken.transferFrom(msg.sender, address(this), bidAmount);
 
@@ -99,19 +100,14 @@ contract SushiMakerAuction is BoringBatchable, BoringOwnable {
     ) external {
         Bid storage bid = bids[token];
 
-        require(bid.bidder != address(0), "bid not started");
-
-        require(
-            bid.minTTL > block.timestamp || bid.maxTTL > block.timestamp,
-            "bid finished"
-        );
-
-        require(
+        if (bid.bidder == address(0)) revert BidNotStarted();
+        if (bid.minTTL <= block.timestamp || bid.maxTTL <= block.timestamp)
+            revert BidFinished();
+        if (
             (bid.bidAmount +
                 ((bid.bidAmount * MIN_BID_THRESHOLD) /
-                    MIN_BID_THRESHOLD_PRECISION)) <= bidAmount,
-            "bid less than threshold"
-        );
+                    MIN_BID_THRESHOLD_PRECISION)) > bidAmount
+        ) revert InsufficientBidAmount();
 
         stakedBidToken += bidAmount - bid.bidAmount;
 
@@ -142,7 +138,12 @@ contract SushiMakerAuction is BoringBatchable, BoringOwnable {
 
     function unwindLP(address token0, address token1) external {
         IUniswapV2Pair pair = IUniswapV2Pair(
-            UniswapV2Library.pairForExternal(factory, token0, token1, pairCodeHash)
+            UniswapV2Library.pairForExternal(
+                factory,
+                token0,
+                token1,
+                pairCodeHash
+            )
         );
         pair.transfer(address(pair), pair.balanceOf(address(this)));
         pair.burn(address(this));
