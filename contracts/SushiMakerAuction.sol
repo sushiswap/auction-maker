@@ -2,12 +2,8 @@
 
 pragma solidity 0.8.11;
 
-import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
-import "./libraries/UniswapV2Library.sol";
-import "./utils/BoringBatchable.sol";
-import "./utils/BoringOwnable.sol";
+import "./interfaces/ISushiMakerAuction.sol";
 
-// TODO: add events
 // TODO: add unchecked to satisfy some people gas thirst
 // TODO: address(0) checks?
 // TODO: slot packing
@@ -23,15 +19,12 @@ error BidNotStarted();
 error BidFinished();
 error BidNotFinished();
 
-contract SushiMakerAuction is BoringBatchable, BoringOwnable, ReentrancyGuard {
-    struct Bid {
-        address bidder;
-        uint128 bidAmount;
-        uint128 rewardAmount;
-        uint64 minTTL;
-        uint64 maxTTL;
-    }
-
+contract SushiMakerAuction is
+    ISushiMakerAuction,
+    BoringBatchable,
+    BoringOwnable,
+    ReentrancyGuard
+{
     uint128 public stakedBidToken;
 
     mapping(IERC20 => Bid) public bids;
@@ -73,7 +66,7 @@ contract SushiMakerAuction is BoringBatchable, BoringOwnable, ReentrancyGuard {
         IERC20 token,
         uint128 bidAmount,
         address to
-    ) external onlyToken(token) nonReentrant {
+    ) external override onlyToken(token) nonReentrant {
         if (token == bidToken) revert BidTokenNotAllowed();
 
         if (bidAmount < MIN_BID) revert InsufficientBidAmount();
@@ -91,13 +84,15 @@ contract SushiMakerAuction is BoringBatchable, BoringOwnable, ReentrancyGuard {
         bid.maxTTL = uint64(block.timestamp) + maxTTL;
 
         stakedBidToken += bidAmount;
+
+        emit Started(token, msg.sender, bidAmount, bid.rewardAmount);
     }
 
     function placeBid(
         IERC20 token,
         uint128 bidAmount,
         address to
-    ) external nonReentrant {
+    ) external override nonReentrant {
         Bid storage bid = bids[token];
 
         if (bid.bidder == address(0)) revert BidNotStarted();
@@ -117,9 +112,11 @@ contract SushiMakerAuction is BoringBatchable, BoringOwnable, ReentrancyGuard {
         bid.bidder = to;
         bid.bidAmount = bidAmount;
         bid.minTTL = uint64(block.timestamp) + minTTL;
+
+        emit PlacedBid(token, msg.sender, bidAmount);
     }
 
-    function end(IERC20 token) external nonReentrant {
+    function end(IERC20 token) external override nonReentrant {
         Bid memory bid = bids[token];
 
         if (bid.bidder == address(0)) revert BidNotStarted();
@@ -133,10 +130,12 @@ contract SushiMakerAuction is BoringBatchable, BoringOwnable, ReentrancyGuard {
 
         stakedBidToken -= bid.bidAmount;
 
+        emit Ended(token, bid.bidder, bid.bidAmount);
+
         delete bids[token];
     }
 
-    function unwindLP(address token0, address token1) external {
+    function unwindLP(address token0, address token1) external override {
         IUniswapV2Pair pair = IUniswapV2Pair(
             UniswapV2Library.pairFor(factory, token0, token1, pairCodeHash)
         );
@@ -144,14 +143,14 @@ contract SushiMakerAuction is BoringBatchable, BoringOwnable, ReentrancyGuard {
         pair.burn(address(this));
     }
 
-    function skimBidToken() external {
+    function skimBidToken() external override {
         bidToken.transfer(
             receiver,
             bidToken.balanceOf(address(this)) - stakedBidToken
         );
     }
 
-    function updateReceiver(address newReceiver) external onlyOwner {
+    function updateReceiver(address newReceiver) external override onlyOwner {
         receiver = newReceiver;
     }
 }
