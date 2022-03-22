@@ -13,14 +13,23 @@ import "./utils/BoringOwnable.sol";
 // TODO: slot packing
 // TODO: cross-check scenarios with bug/vuln list
 
+
+// custom errors
+error LPTokenNotAllowed();
+error BidTokenNotAllowed();
+error InsufficientBidAmount();
+error BidAlreadyStarted();
+
 contract SushiMakerAuction is BoringBatchable, BoringOwnable {
     struct Bid {
         address bidder;
-        uint128 bid;
-        uint128 amount;
+        uint128 bidAmount;
+        uint128 rewardAmount;
         uint64 minTTL;
         uint64 maxTTL;
     }
+
+    uint128 public stakedBidToken;
 
     mapping(IERC20 => Bid) public bids;
 
@@ -28,7 +37,6 @@ contract SushiMakerAuction is BoringBatchable, BoringOwnable {
     IERC20 public immutable bidToken;
     address public immutable factory;
     bytes32 public immutable pairCodeHash;
-    bytes32 public immutable lpCodeHash;
 
     // keep this constant?
     uint256 public constant MIN_BID = 1000;
@@ -39,53 +47,49 @@ contract SushiMakerAuction is BoringBatchable, BoringOwnable {
     uint64 public minTTL = 12 hours;
     uint64 public maxTTL = 3 days;
 
+    modifier onlyToken(IERC20 token) {
+        (bool success, ) = address(token).call(
+            abi.encodeWithSignature("token0()")
+        );
+        if(success) revert LPTokenNotAllowed();
+        _;
+    }
+
     constructor(
         address _receiver,
         IERC20 _bidToken,
         address _factory,
-        bytes32 _pairCodeHash,
-        bytes32 _lpCodeHash
+        bytes32 _pairCodeHash
     ) {
         receiver = _receiver;
         bidToken = _bidToken;
         factory = _factory;
         pairCodeHash = _pairCodeHash;
-        lpCodeHash = _lpCodeHash;
     }
 
     function start(
         IERC20 token,
         uint128 bidAmount,
         address to
-    ) external {
-        // can be combined into one
-        // any better way to check LP?
+    ) external onlyToken(token) {
 
-        // Method 1:
-        // (bool success, bytes memory data) = address(token).call(
-        //     abi.encodeWithSignature("token0()")
-        // );
+        if(token == bidToken) revert BidTokenNotAllowed();
 
-        // require(success && data.length == 0, "lp token not allowed");
-
-        // Method 2:
-        require(keccak256(address(token).code) != lpCodeHash, "lp token not allowed");
-
-        require(token != bidToken, "bid token not allowed");
-
-        require(bidAmount >= MIN_BID, "bid amount less than min");
+        if(bidAmount < MIN_BID) revert InsufficientBidAmount();
 
         Bid storage bid = bids[token];
 
-        require(bid.bidder == address(0), "bid already started");
+        if(bid.bidder != address(0)) revert BidAlreadyStarted();
 
         bidToken.transferFrom(msg.sender, address(this), bidAmount);
 
         bid.bidder = to;
-        bid.bid = bidAmount;
-        bid.amount = uint128(token.balanceOf(address(this)));
+        bid.bidAmount = bidAmount;
+        bid.rewardAmount = uint128(token.balanceOf(address(this)));
         bid.minTTL = uint64(block.timestamp) + minTTL;
         bid.maxTTL = uint64(block.timestamp) + maxTTL;
+
+        stakedBidToken += bidAmount;
     }
 
     function placeBid(
@@ -103,17 +107,19 @@ contract SushiMakerAuction is BoringBatchable, BoringOwnable {
         );
 
         require(
-            (bid.bid +
-                ((bid.bid * MIN_BID_THRESHOLD) /
+            (bid.bidAmount +
+                ((bid.bidAmount * MIN_BID_THRESHOLD) /
                     MIN_BID_THRESHOLD_PRECISION)) <= bidAmount,
             "bid less than threshold"
         );
 
+        stakedBidToken += bidAmount - bid.bidAmount;
+
         bidToken.transferFrom(msg.sender, address(this), bidAmount);
-        bidToken.transfer(bid.bidder, bid.bid);
+        bidToken.transfer(bid.bidder, bid.bidAmount);
 
         bid.bidder = to;
-        bid.bid = bidAmount;
+        bid.bidAmount = bidAmount;
         bid.minTTL = uint64(block.timestamp) + minTTL;
     }
 
@@ -127,17 +133,18 @@ contract SushiMakerAuction is BoringBatchable, BoringOwnable {
             "Bid not Finished"
         );
 
-        token.transfer(bid.bidder, bid.amount);
+        token.transfer(bid.bidder, bid.rewardAmount);
 
-        bidToken.transfer(receiver, bid.bid);
+        bidToken.transfer(receiver, bid.rewardAmount);
 
         delete bids[token];
     }
 
     function unwindLP(address token0, address token1) external {
         IUniswapV2Pair pair = IUniswapV2Pair(
-            UniswapV2Library.pairFor(factory, token0, token1, pairCodeHash)
+            UniswapV2Library.pairForExternal(factory, token0, token1, pairCodeHash)
         );
+        pair.transfer(address(pair), pair.balanceOf(address(this)));
         pair.burn(address(this));
     }
 
