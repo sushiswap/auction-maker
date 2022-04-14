@@ -27,6 +27,8 @@ interface ISushiMakerAuction {
 
     function updateReceiver(address newReceiver) external;
 
+    function updateWhitelistToken(IERC20 token, bool status) external;
+
     struct Bid {
         address bidder;
         uint128 bidAmount;

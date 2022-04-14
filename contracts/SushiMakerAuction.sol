@@ -28,6 +28,7 @@ contract SushiMakerAuction is
     uint128 public stakedBidToken;
 
     mapping(IERC20 => Bid) public bids;
+    mapping(IERC20 => bool) public whitelistedTokens;
 
     address public receiver;
     IERC20 public immutable bidToken;
@@ -43,10 +44,12 @@ contract SushiMakerAuction is
 
     modifier onlyToken(IERC20 token) {
         // Any cleaner way to find if it's a LP?
-        (bool success, ) = address(token).call(
-            abi.encodeWithSignature("token0()")
-        );
-        if (success) revert LPTokenNotAllowed();
+        if (!whitelistedTokens[token]) {
+            (bool success, bytes memory result) = address(token).call(
+                abi.encodeWithSignature("token0()")
+            );
+            if (success && result.length == 32) revert LPTokenNotAllowed();
+        }
         _;
     }
 
@@ -152,5 +155,13 @@ contract SushiMakerAuction is
 
     function updateReceiver(address newReceiver) external override onlyOwner {
         receiver = newReceiver;
+    }
+
+    function updateWhitelistToken(IERC20 token, bool status)
+        external
+        override
+        onlyOwner
+    {
+        whitelistedTokens[token] = status;
     }
 }

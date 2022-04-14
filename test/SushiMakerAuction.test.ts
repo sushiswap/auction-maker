@@ -520,7 +520,17 @@ describe("Skim Tokens and Update Receiver", function () {
       makerAuction.connect(accounts[1]).updateReceiver(accounts[1].address)
     ).to.be.revertedWith("Ownable: caller is not the owner");
   });
-  it("should update the receiver when owener", async function () {
+
+  it("should update the receiver when owner", async function () {
     await makerAuction.connect(accounts[0]).updateReceiver(accounts[1].address);
+  });
+
+  it("should allow to whitelist tokens", async function () {
+    await sushiToken.approve(makerAuction.address, getBigNumber(1));
+
+    await makerAuction
+      .connect(accounts[0])
+      .updateWhitelistToken(tokens[1].address, true);
+    await makerAuction.start(tokens[1].address, 1000, accounts[0].address);
   });
 });
