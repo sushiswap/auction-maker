@@ -112,6 +112,7 @@ describe("Start Auction", function () {
 
   it("should not allow to start bid if already running", async function () {
     await sushiToken.approve(makerAuction.address, getBigNumber(1));
+    await makerAuction.deposit(sushiToken.address, getBigNumber(1));
     await makerAuction.start(tokens[0].address, 1000, accounts[0].address);
     await expect(
       makerAuction.start(tokens[0].address, 1000, accounts[0].address)
@@ -121,12 +122,22 @@ describe("Start Auction", function () {
   it("should start auction", async function () {
     const rewardAmount = await tokens[0].balanceOf(makerAuction.address);
     await sushiToken.approve(makerAuction.address, getBigNumber(1));
+    await makerAuction.deposit(sushiToken.address, getBigNumber(1));
+    const preUserBalance = await makerAuction.getBalance(
+      accounts[0].address,
+      sushiToken.address
+    );
 
     await makerAuction.start(tokens[0].address, 1000, accounts[0].address);
 
     const stakedBidToken = await makerAuction.stakedBidToken();
 
     const bidData = await makerAuction.bids(tokens[0].address);
+
+    const postUserBalance = await makerAuction.getBalance(
+      accounts[0].address,
+      sushiToken.address
+    );
 
     const now = await latest();
 
@@ -136,13 +147,15 @@ describe("Start Auction", function () {
     // 3 days
     expect(bidData.maxTTL).to.be.eq(now.add(MAX_TTL));
 
-    expect(stakedBidToken).to.be.eq(1000);
+    expect(stakedBidToken).to.be.eq(getBigNumber(1));
 
     expect(bidData.bidder).to.be.eq(accounts[0].address);
 
     expect(bidData.bidAmount).to.be.eq(1000);
 
     expect(bidData.rewardAmount).to.be.eq(rewardAmount);
+
+    expect(postUserBalance).to.be.eq(preUserBalance.sub(BigNumber.from(1000)));
   });
 });
 
@@ -218,6 +231,7 @@ describe("Place Bid", function () {
 
     // start auction
     await sushiToken.approve(makerAuction.address, getBigNumber(1));
+    await makerAuction.deposit(sushiToken.address, getBigNumber(1));
     await makerAuction.start(tokens[0].address, 1000, accounts[0].address);
   });
 
@@ -274,8 +288,14 @@ describe("Place Bid", function () {
     const balanceSushiTokenBefore = await sushiToken.balanceOf(
       makerAuction.address
     );
-    const balanceLastBidderSushiTokenBefore = await sushiToken.balanceOf(
-      accounts[0].address
+
+    await makerAuction
+      .connect(accounts[1])
+      .deposit(sushiToken.address, getBigNumber(1));
+
+    const balanceLastBidderSushiTokenBefore = await makerAuction.getBalance(
+      accounts[0].address,
+      sushiToken.address
     );
 
     const beforeStakedBidToken = await makerAuction.stakedBidToken();
@@ -292,16 +312,19 @@ describe("Place Bid", function () {
       makerAuction.address
     );
 
-    const balanceLastBidderSushiTokenAfter = await sushiToken.balanceOf(
-      accounts[0].address
+    const balanceLastBidderSushiTokenAfter = await makerAuction.getBalance(
+      accounts[0].address,
+      sushiToken.address
     );
-    expect(balanceSushiTokenAfter).to.be.eq(balanceSushiTokenBefore.add(1));
+    expect(balanceSushiTokenAfter).to.be.eq(
+      balanceSushiTokenBefore.add(getBigNumber(1))
+    );
     expect(balanceLastBidderSushiTokenAfter).to.be.eq(
       balanceLastBidderSushiTokenBefore.add(1000)
     );
     expect(postBidData.bidder).to.be.eq(accounts[1].address);
     expect(postBidData.bidAmount).to.be.eq(1001);
-    expect(afterStakedBidToken).to.be.eq(beforeStakedBidToken.add(1));
+    expect(afterStakedBidToken).to.be.eq(beforeStakedBidToken);
   });
 });
 
@@ -392,6 +415,7 @@ describe("End Auction", function () {
   it("should not allow to end bid if min ttl not over", async function () {
     // start auction
     await sushiToken.approve(makerAuction.address, getBigNumber(1));
+    await makerAuction.deposit(sushiToken.address, 1000);
     await makerAuction.start(tokens[0].address, 1000, accounts[0].address);
 
     await expect(makerAuction.end(tokens[0].address)).to.be.revertedWith(
@@ -401,6 +425,7 @@ describe("End Auction", function () {
 
   it("should not allow to end bid before max ttl not over", async function () {
     await sushiToken.approve(makerAuction.address, getBigNumber(1));
+    await makerAuction.deposit(sushiToken.address, getBigNumber(1));
     await makerAuction.start(tokens[0].address, 1000, accounts[0].address);
 
     let startAmount = 1000;
@@ -420,6 +445,7 @@ describe("End Auction", function () {
 
   it("should allow to end auction and start new auction", async function () {
     await sushiToken.approve(makerAuction.address, getBigNumber(1));
+    await makerAuction.deposit(sushiToken.address, getBigNumber(1));
     await makerAuction.start(tokens[0].address, 1000, accounts[0].address);
 
     const beforeStakedBidToken = await makerAuction.stakedBidToken();
@@ -432,13 +458,14 @@ describe("End Auction", function () {
 
     const postBidData = await makerAuction.bids(tokens[0].address);
 
-    const receiverSushiBalance = await sushiToken.balanceOf(
-      accounts[5].address
+    const receiverSushiBalance = await makerAuction.getBalance(
+      accounts[5].address,
+      sushiToken.address
     );
 
     expect(receiverSushiBalance).to.be.eq(1000);
     expect(postBidData.bidder).to.be.eq(ADDRESS_ZERO);
-    expect(afterStakedBidToken).to.be.eq(beforeStakedBidToken.sub(1000));
+    expect(afterStakedBidToken).to.be.eq(beforeStakedBidToken);
     await makerAuction.start(tokens[0].address, 1000, accounts[0].address);
   });
 });
@@ -491,28 +518,51 @@ describe("Skim Tokens and Update Receiver", function () {
 
   it("should skim bid token", async function () {
     await sushiToken.approve(makerAuction.address, getBigNumber(1));
+    await makerAuction.deposit(sushiToken.address, getBigNumber(1));
     await makerAuction.start(tokens[0].address, 1000, accounts[0].address);
 
     const balanceReceiverPreSkim1 = await sushiToken.balanceOf(
       accounts[5].address
     );
+
     await makerAuction.skimBidToken();
+
     const balanceReceiverPostSkim1 = await sushiToken.balanceOf(
       accounts[5].address
     );
+
     expect(balanceReceiverPostSkim1).to.be.eq(balanceReceiverPreSkim1);
+
+    await increase(MIN_TTL.add(1));
+    await makerAuction.end(tokens[0].address);
+
+    const receiverSushiBalance1 = await makerAuction.getBalance(
+      accounts[5].address,
+      sushiToken.address
+    );
 
     const balanceReceiverPreSkim2 = await sushiToken.balanceOf(
       accounts[5].address
     );
-    await sushiToken.transfer(accounts[5].address, 1000);
+
+    await sushiToken.transfer(makerAuction.address, 1000);
+
     await makerAuction.skimBidToken();
+
     const balanceReceiverPostSkim2 = await sushiToken.balanceOf(
       accounts[5].address
     );
+
     expect(balanceReceiverPostSkim2).to.be.eq(
-      balanceReceiverPreSkim2.add(1000)
+      balanceReceiverPreSkim2.add(2000)
     );
+
+    const receiverSushiBalance2 = await makerAuction.getBalance(
+      accounts[5].address,
+      sushiToken.address
+    );
+
+    expect(receiverSushiBalance2).to.be.eq(0);
   });
 
   it("should not update receiver when not owner", async function () {
@@ -527,7 +577,7 @@ describe("Skim Tokens and Update Receiver", function () {
 
   it("should allow to whitelist tokens", async function () {
     await sushiToken.approve(makerAuction.address, getBigNumber(1));
-
+    await makerAuction.deposit(sushiToken.address, getBigNumber(1));
     await makerAuction
       .connect(accounts[0])
       .updateWhitelistToken(tokens[1].address, true);

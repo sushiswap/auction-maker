@@ -39,13 +39,6 @@ task("accounts", "Prints the list of accounts", async (args, { ethers }) => {
 });
 
 const config: HardhatUserConfig = {
-  contractSizer: {
-    alphaSort: true,
-    disambiguatePaths: false,
-    runOnCompile: true,
-    strict: true,
-    only: [":SushiMakerAuction$"],
-  },
   defaultNetwork: "hardhat",
   etherscan: {
     apiKey: process.env.ETHERSCAN_API_KEY,

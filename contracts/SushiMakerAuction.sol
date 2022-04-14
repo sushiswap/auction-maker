@@ -95,6 +95,10 @@ contract SushiMakerAuction is
         }
     }
 
+    function getBalance(address user, IERC20 token) external view returns(uint256 balance) {
+        return balances[user][token];
+    }
+
     function start(
         IERC20 token,
         uint128 bidAmount,
