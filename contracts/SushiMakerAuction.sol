@@ -29,6 +29,7 @@ contract SushiMakerAuction is
 
     mapping(IERC20 => Bid) public bids;
     mapping(IERC20 => bool) public whitelistedTokens;
+    mapping(address => mapping(IERC20 => uint256)) balances;
 
     address public receiver;
     IERC20 public immutable bidToken;
@@ -65,6 +66,35 @@ contract SushiMakerAuction is
         pairCodeHash = _pairCodeHash;
     }
 
+    function deposit(IERC20 token, uint256 amount) external {
+        token.transferFrom(msg.sender, address(this), amount);
+        balances[msg.sender][token] += amount;
+        if (token == bidToken) {
+            stakedBidToken += uint128(amount);
+        }
+    }
+
+    function withdraw(IERC20 token, uint256 amount) external {
+        balances[msg.sender][token] -= amount;
+        if (token == bidToken) {
+            stakedBidToken -= uint128(amount);
+        }
+        token.transfer(msg.sender, amount);
+    }
+
+    function _updateTokenBalance(
+        IERC20 token,
+        address to,
+        uint256 amount,
+        bool inc
+    ) internal {
+        if (inc) {
+            balances[to][token] += amount;
+        } else {
+            balances[to][token] -= amount;
+        }
+    }
+
     function start(
         IERC20 token,
         uint128 bidAmount,
@@ -78,15 +108,13 @@ contract SushiMakerAuction is
 
         if (bid.bidder != address(0)) revert BidAlreadyStarted();
 
-        bidToken.transferFrom(msg.sender, address(this), bidAmount);
+        _updateTokenBalance(bidToken, msg.sender, bidAmount, false);
 
         bid.bidder = to;
         bid.bidAmount = bidAmount;
         bid.rewardAmount = uint128(token.balanceOf(address(this)));
         bid.minTTL = uint64(block.timestamp) + minTTL;
         bid.maxTTL = uint64(block.timestamp) + maxTTL;
-
-        stakedBidToken += bidAmount;
 
         emit Started(token, msg.sender, bidAmount, bid.rewardAmount);
     }
@@ -107,10 +135,8 @@ contract SushiMakerAuction is
                     MIN_BID_THRESHOLD_PRECISION)) > bidAmount
         ) revert InsufficientBidAmount();
 
-        stakedBidToken += bidAmount - bid.bidAmount;
-
-        bidToken.transferFrom(msg.sender, address(this), bidAmount);
-        bidToken.transfer(bid.bidder, bid.bidAmount);
+        _updateTokenBalance(bidToken, msg.sender, bidAmount, false);
+        _updateTokenBalance(bidToken, bid.bidder, bid.bidAmount, true);
 
         bid.bidder = to;
         bid.bidAmount = bidAmount;
@@ -127,11 +153,8 @@ contract SushiMakerAuction is
         if (bid.minTTL > block.timestamp && bid.maxTTL > block.timestamp)
             revert BidNotFinished();
 
-        token.transfer(bid.bidder, bid.rewardAmount);
-
-        bidToken.transfer(receiver, bid.bidAmount);
-
-        stakedBidToken -= bid.bidAmount;
+        _updateTokenBalance(token, bid.bidder, bid.rewardAmount, true);
+        _updateTokenBalance(bidToken, receiver, bid.bidAmount, true);
 
         emit Ended(token, bid.bidder, bid.bidAmount);
 
@@ -147,6 +170,9 @@ contract SushiMakerAuction is
     }
 
     function skimBidToken() external override {
+        uint128 recieverBalance = uint128(balances[receiver][bidToken]);
+        balances[receiver][bidToken] = 0;
+        stakedBidToken -= recieverBalance;
         bidToken.transfer(
             receiver,
             bidToken.balanceOf(address(this)) - stakedBidToken
