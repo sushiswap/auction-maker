@@ -25,6 +25,7 @@ contract SushiMakerAuction is
     BoringOwnable,
     ReentrancyGuard
 {
+    using SafeERC20 for IERC20;
     uint128 public stakedBidToken;
 
     mapping(IERC20 => Bid) public bids;
@@ -67,7 +68,7 @@ contract SushiMakerAuction is
     }
 
     function deposit(IERC20 token, uint256 amount) external {
-        token.transferFrom(msg.sender, address(this), amount);
+        token.safeTransferFrom(msg.sender, address(this), amount);
         balances[msg.sender][token] += amount;
         if (token == bidToken) {
             stakedBidToken += uint128(amount);
@@ -79,7 +80,7 @@ contract SushiMakerAuction is
         if (token == bidToken) {
             stakedBidToken -= uint128(amount);
         }
-        token.transfer(msg.sender, amount);
+        token.safeTransfer(msg.sender, amount);
     }
 
     function _updateTokenBalance(
@@ -95,7 +96,11 @@ contract SushiMakerAuction is
         }
     }
 
-    function getBalance(address user, IERC20 token) external view returns(uint256 balance) {
+    function getBalance(address user, IERC20 token)
+        external
+        view
+        returns (uint256 balance)
+    {
         return balances[user][token];
     }
 
@@ -177,7 +182,7 @@ contract SushiMakerAuction is
         uint128 recieverBalance = uint128(balances[receiver][bidToken]);
         balances[receiver][bidToken] = 0;
         stakedBidToken -= recieverBalance;
-        bidToken.transfer(
+        bidToken.safeTransfer(
             receiver,
             bidToken.balanceOf(address(this)) - stakedBidToken
         );
