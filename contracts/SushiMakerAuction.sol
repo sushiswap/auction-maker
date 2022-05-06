@@ -25,9 +25,12 @@ contract SushiMakerAuction is
     BoringOwnable,
     ReentrancyGuard
 {
+    using SafeERC20 for IERC20;
     uint128 public stakedBidToken;
 
     mapping(IERC20 => Bid) public bids;
+    mapping(IERC20 => bool) public whitelistedTokens;
+    mapping(address => mapping(IERC20 => uint256)) balances;
 
     address public receiver;
     IERC20 public immutable bidToken;
@@ -43,10 +46,12 @@ contract SushiMakerAuction is
 
     modifier onlyToken(IERC20 token) {
         // Any cleaner way to find if it's a LP?
-        (bool success, ) = address(token).call(
-            abi.encodeWithSignature("token0()")
-        );
-        if (success) revert LPTokenNotAllowed();
+        if (!whitelistedTokens[token]) {
+            (bool success, bytes memory result) = address(token).call(
+                abi.encodeWithSignature("token0()")
+            );
+            if (success && result.length == 32) revert LPTokenNotAllowed();
+        }
         _;
     }
 
@@ -62,6 +67,43 @@ contract SushiMakerAuction is
         pairCodeHash = _pairCodeHash;
     }
 
+    function deposit(IERC20 token, uint256 amount) external {
+        token.safeTransferFrom(msg.sender, address(this), amount);
+        balances[msg.sender][token] += amount;
+        if (token == bidToken) {
+            stakedBidToken += uint128(amount);
+        }
+    }
+
+    function withdraw(IERC20 token, uint256 amount) external {
+        balances[msg.sender][token] -= amount;
+        if (token == bidToken) {
+            stakedBidToken -= uint128(amount);
+        }
+        token.safeTransfer(msg.sender, amount);
+    }
+
+    function _updateTokenBalance(
+        IERC20 token,
+        address to,
+        uint256 amount,
+        bool inc
+    ) internal {
+        if (inc) {
+            balances[to][token] += amount;
+        } else {
+            balances[to][token] -= amount;
+        }
+    }
+
+    function getBalance(address user, IERC20 token)
+        external
+        view
+        returns (uint256 balance)
+    {
+        return balances[user][token];
+    }
+
     function start(
         IERC20 token,
         uint128 bidAmount,
@@ -75,15 +117,13 @@ contract SushiMakerAuction is
 
         if (bid.bidder != address(0)) revert BidAlreadyStarted();
 
-        bidToken.transferFrom(msg.sender, address(this), bidAmount);
+        _updateTokenBalance(bidToken, msg.sender, bidAmount, false);
 
         bid.bidder = to;
         bid.bidAmount = bidAmount;
         bid.rewardAmount = uint128(token.balanceOf(address(this)));
         bid.minTTL = uint64(block.timestamp) + minTTL;
         bid.maxTTL = uint64(block.timestamp) + maxTTL;
-
-        stakedBidToken += bidAmount;
 
         emit Started(token, msg.sender, bidAmount, bid.rewardAmount);
     }
@@ -104,10 +144,8 @@ contract SushiMakerAuction is
                     MIN_BID_THRESHOLD_PRECISION)) > bidAmount
         ) revert InsufficientBidAmount();
 
-        stakedBidToken += bidAmount - bid.bidAmount;
-
-        bidToken.transferFrom(msg.sender, address(this), bidAmount);
-        bidToken.transfer(bid.bidder, bid.bidAmount);
+        _updateTokenBalance(bidToken, msg.sender, bidAmount, false);
+        _updateTokenBalance(bidToken, bid.bidder, bid.bidAmount, true);
 
         bid.bidder = to;
         bid.bidAmount = bidAmount;
@@ -124,11 +162,8 @@ contract SushiMakerAuction is
         if (bid.minTTL > block.timestamp && bid.maxTTL > block.timestamp)
             revert BidNotFinished();
 
-        token.transfer(bid.bidder, bid.rewardAmount);
-
-        bidToken.transfer(receiver, bid.bidAmount);
-
-        stakedBidToken -= bid.bidAmount;
+        _updateTokenBalance(token, bid.bidder, bid.rewardAmount, true);
+        _updateTokenBalance(bidToken, receiver, bid.bidAmount, true);
 
         emit Ended(token, bid.bidder, bid.bidAmount);
 
@@ -144,7 +179,10 @@ contract SushiMakerAuction is
     }
 
     function skimBidToken() external override {
-        bidToken.transfer(
+        uint128 recieverBalance = uint128(balances[receiver][bidToken]);
+        balances[receiver][bidToken] = 0;
+        stakedBidToken -= recieverBalance;
+        bidToken.safeTransfer(
             receiver,
             bidToken.balanceOf(address(this)) - stakedBidToken
         );
@@ -152,5 +190,13 @@ contract SushiMakerAuction is
 
     function updateReceiver(address newReceiver) external override onlyOwner {
         receiver = newReceiver;
+    }
+
+    function updateWhitelistToken(IERC20 token, bool status)
+        external
+        override
+        onlyOwner
+    {
+        whitelistedTokens[token] = status;
     }
 }
